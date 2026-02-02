@@ -350,7 +350,7 @@ def markdown_to_html(markdown_text):
         return f"<pre>{markdown_text}</pre>"
 
 def send_email(html_content):
-    """发送邮件"""
+    """发送邮件，支持多个接收者"""
     sender = os.getenv("EMAIL_SENDER")
     password = os.getenv("EMAIL_PASSWORD")
     receiver = os.getenv("EMAIL_RECEIVER")
@@ -358,19 +358,27 @@ def send_email(html_content):
     if not sender or not password:
         logging.error("邮件配置缺失，无法发送")
         return False
-
+    
+    # 如果没有设置接收邮箱，默认使用发送邮箱（自己发给自己）
+    if not receiver:
+        receiver = sender
+        logging.info("未设置接收邮箱，使用发送邮箱作为接收邮箱")
+    
+    # 支持多个接收邮箱（逗号分隔）
+    receiver_list = [r.strip() for r in receiver.split(',') if r.strip()]
+    
     msg = MIMEText(html_content, 'html', 'utf-8')
     msg['Subject'] = Header(f'📚 每日阅读简报 - {datetime.now().strftime("%m月%d日")}', 'utf-8')
     msg['From'] = sender
-    msg['To'] = receiver
+    msg['To'] = ', '.join(receiver_list)  # 多个邮箱用逗号分隔显示
     
     try:
         smtp_server = "smtp.163.com"
         server = smtplib.SMTP_SSL(smtp_server, 465) 
         server.login(sender, password)
-        server.sendmail(sender, [receiver], msg.as_string())
+        server.sendmail(sender, receiver_list, msg.as_string())
         server.quit()
-        logging.info(f"邮件已成功发送至 {receiver}！")
+        logging.info(f"邮件已成功发送至: {', '.join(receiver_list)}")
         return True
     except Exception as e:
         logging.error(f"邮件发送失败: {e}")

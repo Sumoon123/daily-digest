@@ -33,5 +33,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          # EMAIL_RECEIVER 是可选的，如果不设置则使用 EMAIL_SENDER
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
         run: python daily_digest.py
