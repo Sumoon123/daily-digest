@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
@@ -31,8 +31,9 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # 发送邮箱（可选，默认为 Resend 测试邮箱）
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          # EMAIL_RECEIVER 是可选的，如果不设置则使用 EMAIL_SENDER
+          # 接收邮箱（可选，默认为发送邮箱）
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
         run: python daily_digest.py

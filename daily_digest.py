@@ -1,10 +1,8 @@
 import os
-import smtplib
+import resend
 import requests
 import logging
 import json
-from email.mime.text import MIMEText
-from email.header import Header
 from datetime import datetime
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -22,7 +20,14 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 # 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
-MODEL_NAME = "models/gemini-2.5-flash"
+
+# 模型列表（按优先级排序，当主模型配额用完时自动切换）
+# 参考 Google AI Studio 用量限制页面配置
+MODEL_LIST = [
+    "models/gemini-2.5-flash",           # 主模型（RPD: 20）
+    "models/gemini-2.5-flash-lite",      # 备用模型1（RPD: 20）
+    "models/gemini-3-flash",             # 备用模型2（RPD: 5）
+]
 
 def get_database_info():
     """获取数据库信息（包括标题）"""
@@ -197,9 +202,7 @@ def get_unread_articles():
         return []
 
 def generate_single_summary(article):
-    """第一步：为单篇文章生成摘要"""
-    model = genai.GenerativeModel(MODEL_NAME)
-    
+    """第一步：为单篇文章生成摘要，自动切换模型"""
     prompt = f"""你是一个专业的内容摘要专家。请对以下文章进行专业、简洁的总结，提炼其核心观点（200字以内）。
 
 文章标题：{article['title']}
@@ -208,12 +211,27 @@ def generate_single_summary(article):
 
 请直接输出摘要内容，不要包含标题或其他格式。"""
     
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        logging.error(f"生成摘要失败 {article['title']}: {e}")
-        return f"[摘要生成失败] {article['title']}"
+    # 依次尝试所有模型
+    for model_name in MODEL_LIST:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            logging.info(f"✓ 使用 {model_name} 成功生成摘要: {article['title'][:30]}...")
+            return response.text.strip()
+        except Exception as e:
+            error_str = str(e)
+            # 检查是否是配额超限错误（429）
+            if "429" in error_str or "quota" in error_str.lower() or "exceeded" in error_str.lower():
+                logging.warning(f"⚠ 模型 {model_name} 配额已用完，尝试下一个模型...")
+                continue
+            else:
+                # 其他错误直接返回失败
+                logging.error(f"✗ 模型 {model_name} 生成失败: {e}")
+                break
+    
+    # 所有模型都失败了
+    logging.error(f"所有模型都无法生成摘要: {article['title']}")
+    return f"[摘要生成失败] {article['title']}"
 
 def generate_all_summaries(articles):
     """并行为所有文章生成摘要"""
@@ -238,11 +256,9 @@ def generate_all_summaries(articles):
     return summaries
 
 def generate_final_digest(summaries):
-    """第二步：将所有摘要整合成每日简报"""
+    """第二步：将所有摘要整合成每日简报，自动切换模型"""
     if not summaries:
         return None
-    
-    model = genai.GenerativeModel(MODEL_NAME)
     
     # 构建所有摘要的文本
     all_summaries_text = ""
@@ -268,12 +284,28 @@ def generate_final_digest(summaries):
 请直接输出 Markdown 格式的简报内容。"""
     
     logging.info("正在生成最终的每日简报...")
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        logging.error(f"生成简报失败: {e}")
-        return None
+    
+    # 依次尝试所有模型
+    for model_name in MODEL_LIST:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            logging.info(f"✓ 使用 {model_name} 成功生成每日简报")
+            return response.text.strip()
+        except Exception as e:
+            error_str = str(e)
+            # 检查是否是配额超限错误（429）
+            if "429" in error_str or "quota" in error_str.lower() or "exceeded" in error_str.lower():
+                logging.warning(f"⚠ 模型 {model_name} 配额已用完，尝试下一个模型...")
+                continue
+            else:
+                # 其他错误直接返回失败
+                logging.error(f"✗ 模型 {model_name} 生成失败: {e}")
+                break
+    
+    # 所有模型都失败了
+    logging.error("所有模型都无法生成简报")
+    return None
 
 def markdown_to_html(markdown_text):
     """将 Markdown 转换为 HTML"""
@@ -350,14 +382,19 @@ def markdown_to_html(markdown_text):
         return f"<pre>{markdown_text}</pre>"
 
 def send_email(html_content):
-    """发送邮件，支持多个接收者"""
+    """使用 Resend 发送邮件，支持多个接收者"""
+    resend_api_key = os.getenv("RESEND_API_KEY")
     sender = os.getenv("EMAIL_SENDER")
-    password = os.getenv("EMAIL_PASSWORD")
     receiver = os.getenv("EMAIL_RECEIVER")
     
-    if not sender or not password:
-        logging.error("邮件配置缺失，无法发送")
+    if not resend_api_key:
+        logging.error("Resend API Key 缺失，无法发送")
         return False
+    
+    # 如果没有设置发送邮箱，使用 Resend 默认的测试邮箱
+    if not sender:
+        sender = "onboarding@resend.dev"
+        logging.info(f"未设置发送邮箱，使用 Resend 默认邮箱: {sender}")
     
     # 如果没有设置接收邮箱，默认使用发送邮箱（自己发给自己）
     if not receiver:
@@ -367,18 +404,20 @@ def send_email(html_content):
     # 支持多个接收邮箱（逗号分隔）
     receiver_list = [r.strip() for r in receiver.split(',') if r.strip()]
     
-    msg = MIMEText(html_content, 'html', 'utf-8')
-    msg['Subject'] = Header(f'📚 每日阅读简报 - {datetime.now().strftime("%m月%d日")}', 'utf-8')
-    msg['From'] = sender
-    msg['To'] = ', '.join(receiver_list)  # 多个邮箱用逗号分隔显示
+    # 设置 Resend API Key
+    resend.api_key = resend_api_key
     
     try:
-        smtp_server = "smtp.163.com"
-        server = smtplib.SMTP_SSL(smtp_server, 465) 
-        server.login(sender, password)
-        server.sendmail(sender, receiver_list, msg.as_string())
-        server.quit()
+        params = {
+            "from": sender,
+            "to": receiver_list,
+            "subject": f"📚 每日阅读简报 - {datetime.now().strftime('%m月%d日')}",
+            "html": html_content,
+        }
+        
+        response = resend.Emails.send(params)
         logging.info(f"邮件已成功发送至: {', '.join(receiver_list)}")
+        logging.info(f"Resend 响应: {response}")
         return True
     except Exception as e:
         logging.error(f"邮件发送失败: {e}")
