@@ -1,9 +1,9 @@
 name: Daily Digest Workflow
 
 on:
-  # 每天 UTC 时间 0:00 运行（即北京时间 8:00）
-  schedule:
-    - cron: "0 0 * * *"
+  # 外部定时服务触发（如 cron-job.org）
+  repository_dispatch:
+    types: [daily-trigger]
   
   # 允许手动触发
   workflow_dispatch:
