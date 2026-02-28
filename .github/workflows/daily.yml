@@ -1,9 +1,16 @@
 name: Daily Digest Workflow
 
 on:
-  # 外部定时服务触发（如 cron-job.org）
+  schedule:
+    - cron: '0 0 * * *'   # 每天北京时间 08:00
   repository_dispatch:
     types: [daily-trigger]
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: false
+        default: 'info'
   
   # 允许手动触发
   workflow_dispatch:
