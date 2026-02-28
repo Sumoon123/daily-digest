@@ -11,14 +11,6 @@ on:
         description: 'Log level'
         required: false
         default: 'info'
-  
-  # 允许手动触发
-  workflow_dispatch:
-    inputs:
-      logLevel:
-        description: 'Log level'
-        required: false
-        default: 'info'
 
 jobs:
   run-daily-digest:
